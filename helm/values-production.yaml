@@ -1,0 +1,141 @@
+# ═══════════════════════════════════════════════════════════════
+#  ElasticGuard — Production Values
+#
+#  Usage:
+#    helm install elasticguard ./elasticguard \
+#      -n monitoring --create-namespace \
+#      -f values-production.yaml \
+#      --set app.secretKey=$(openssl rand -hex 32) \
+#      --set app.approvalWebhookSecret=$(openssl rand -hex 16)
+# ═══════════════════════════════════════════════════════════════
+
+global:
+  storageClass: "standard"     # change to your cluster's storage class
+
+# ── Backend ───────────────────────────────────────────────────
+backend:
+  replicaCount: 2
+
+  image:
+    repository: your-registry/elasticguard-backend
+    tag: "1.0.0"
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 60
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+  persistence:
+    enabled: true
+    size: 5Gi
+
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: backend
+          topologyKey: kubernetes.io/hostname
+
+podDisruptionBudget:
+  backend:
+    enabled: true
+    minAvailable: 1
+  frontend:
+    enabled: true
+    minAvailable: 1
+
+# ── Frontend ──────────────────────────────────────────────────
+frontend:
+  replicaCount: 2
+
+  image:
+    repository: your-registry/elasticguard-frontend
+    tag: "1.0.0"
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ── Ingress ────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+  hosts:
+    - host: elasticguard.your-domain.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+  apiHosts:
+    - host: elasticguard-api.your-domain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: elasticguard-tls
+      hosts:
+        - elasticguard.your-domain.com
+        - elasticguard-api.your-domain.com
+
+# ── AI (use OpenAI in production for best results) ────────────
+ai:
+  defaultProvider: openai
+  existingSecret: elasticguard-ai-keys   # pre-create this Secret
+
+# ── Notifications ──────────────────────────────────────────────
+notifications:
+  existingSecret: elasticguard-notification-keys   # pre-create this Secret
+
+# ── Ollama (disable in production — use cloud AI instead) ─────
+ollama:
+  enabled: false
+
+# ── Prometheus ────────────────────────────────────────────────
+prometheus:
+  retentionTime: 30d
+  persistence:
+    size: 20Gi
+
+# ── Grafana ────────────────────────────────────────────────────
+grafana:
+  existingSecret: elasticguard-grafana-admin   # pre-create this Secret
+  persistence:
+    size: 5Gi
+
+# ── Network Policy ─────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+
+# ── App ────────────────────────────────────────────────────────
+# Set via --set on install, NOT here (avoid committing secrets)
+# app:
+#   secretKey: ""
+#   approvalWebhookSecret: ""

@@ -1,0 +1,16 @@
+{{/*
+Extra manifests — raw Kubernetes YAML appended to the release.
+Configure in values.yaml:
+
+extraManifests:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: my-extra-config
+    data:
+      key: value
+*/}}
+{{- range .Values.extraManifests }}
+---
+{{ toYaml . }}
+{{- end }}

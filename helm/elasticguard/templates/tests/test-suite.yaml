@@ -1,0 +1,217 @@
+{{/*
+ElasticGuard Helm Test Suite
+Runs after: helm test elasticguard -n monitoring
+Tests that all services are reachable and healthy.
+*/}}
+
+# ── Test 1: Backend health endpoint ──────────────────────────
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "elasticguard.fullname" . }}-test-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test-backend-health
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "Testing backend health endpoint..."
+          RESULT=$(wget -qO- http://{{ include "elasticguard.backend.fullname" . }}:{{ .Values.backend.service.port }}/health 2>&1)
+          echo "Response: $RESULT"
+          if echo "$RESULT" | grep -q '"status"'; then
+            echo "✅ Backend health check PASSED"
+          else
+            echo "❌ Backend health check FAILED"
+            exit 1
+          fi
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 32Mi }
+
+---
+# ── Test 2: Frontend reachability ────────────────────────────
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "elasticguard.fullname" . }}-test-frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test-frontend
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "Testing frontend reachability..."
+          STATUS=$(wget -S -q -O /dev/null http://{{ include "elasticguard.frontend.fullname" . }}:{{ .Values.frontend.service.port }}/ 2>&1 | grep "HTTP/" | head -1)
+          echo "HTTP Status: $STATUS"
+          if echo "$STATUS" | grep -qE "200|304"; then
+            echo "✅ Frontend reachability PASSED"
+          else
+            echo "❌ Frontend returned unexpected status"
+            exit 1
+          fi
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 32Mi }
+
+---
+# ── Test 3: Backend API docs endpoint ────────────────────────
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "elasticguard.fullname" . }}-test-api-docs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test-api-docs
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "Testing backend API docs..."
+          RESULT=$(wget -qO- http://{{ include "elasticguard.backend.fullname" . }}:{{ .Values.backend.service.port }}/docs 2>&1)
+          if echo "$RESULT" | grep -q "swagger\|openapi\|ElasticGuard"; then
+            echo "✅ API docs endpoint PASSED"
+          else
+            echo "❌ API docs endpoint FAILED"
+            exit 1
+          fi
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 32Mi }
+
+---
+# ── Test 4: Prometheus metrics endpoint ──────────────────────
+{{- if .Values.prometheus.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "elasticguard.fullname" . }}-test-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test-prometheus-metrics
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "Testing Prometheus metrics endpoint..."
+          RESULT=$(wget -qO- http://{{ include "elasticguard.backend.fullname" . }}:{{ .Values.backend.service.port }}/metrics/prometheus/metrics 2>&1)
+          if echo "$RESULT" | grep -q "elasticguard_up"; then
+            echo "✅ Prometheus metrics endpoint PASSED"
+          else
+            echo "❌ Prometheus metrics endpoint FAILED"
+            exit 1
+          fi
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 32Mi }
+{{- end }}
+
+---
+# ── Test 5: Ollama API reachability ──────────────────────────
+{{- if .Values.ollama.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "elasticguard.fullname" . }}-test-ollama
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test-ollama
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "Testing Ollama API..."
+          RESULT=$(wget -qO- http://{{ include "elasticguard.ollama.fullname" . }}:{{ .Values.ollama.service.port }}/api/tags 2>&1)
+          if echo "$RESULT" | grep -q "models"; then
+            echo "✅ Ollama API PASSED"
+            echo "Available models: $RESULT"
+          else
+            echo "❌ Ollama API FAILED (models may still be pulling)"
+            exit 1
+          fi
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 32Mi }
+{{- end }}
+
+---
+# ── Test 6: Grafana health ────────────────────────────────────
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "elasticguard.fullname" . }}-test-grafana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test-grafana
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "Testing Grafana health..."
+          RESULT=$(wget -qO- http://{{ include "elasticguard.grafana.fullname" . }}:{{ .Values.grafana.service.port }}/api/health 2>&1)
+          if echo "$RESULT" | grep -q "ok\|database"; then
+            echo "✅ Grafana health PASSED"
+          else
+            echo "❌ Grafana health FAILED"
+            exit 1
+          fi
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 32Mi }
+{{- end }}

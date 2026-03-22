@@ -1,0 +1,87 @@
+{{- if .Values.ingress.enabled -}}
+{{- $fullName := include "elasticguard.fullname" . -}}
+{{- $frontendPort := .Values.frontend.service.port -}}
+{{- $backendPort := .Values.backend.service.port -}}
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-frontend
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ if eq .service "backend" }}{{ include "elasticguard.backend.fullname" $ }}{{ else }}{{ include "elasticguard.frontend.fullname" $ }}{{ end }}
+                port:
+                  number: {{ if eq .service "backend" }}{{ $backendPort }}{{ else }}{{ $frontendPort }}{{ end }}
+          {{- end }}
+    {{- end }}
+
+---
+{{- if .Values.ingress.apiHosts }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-backend
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    # WebSocket support — these are needed for /ws/* routes
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.apiHosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "elasticguard.backend.fullname" $ }}
+                port:
+                  number: {{ $backendPort }}
+          {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}

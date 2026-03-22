@@ -1,0 +1,231 @@
+name: Build, Push & Release ElasticGuard
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BACKEND: ${{ github.repository }}-backend
+  IMAGE_FRONTEND: ${{ github.repository }}-frontend
+
+jobs:
+  # ── Lint & Validate ──────────────────────────────────────────
+  lint:
+    name: Lint & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Python deps
+        run: pip install ruff pyright
+
+      - name: Lint backend (ruff)
+        run: ruff check backend/ --ignore E501
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        run: cd frontend && npm ci
+
+      - name: Type-check frontend
+        run: cd frontend && npx tsc --noEmit
+
+      - name: Lint frontend
+        run: cd frontend && npm run lint || true
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.14.0
+
+      - name: Lint Helm chart
+        run: helm lint helm/elasticguard/
+
+      - name: Validate Helm templates (default values)
+        run: |
+          helm template elasticguard helm/elasticguard/ \
+            --set backend.image.repository=test/backend \
+            --set frontend.image.repository=test/frontend \
+            > /dev/null
+          echo "Template rendering: OK"
+
+      - name: Validate with production values
+        run: |
+          helm template elasticguard helm/elasticguard/ \
+            -f helm/values-production.yaml \
+            --set backend.image.repository=test/backend \
+            --set frontend.image.repository=test/frontend \
+            --set ai.existingSecret=test-secret \
+            --set notifications.existingSecret=test-secret \
+            --set grafana.existingSecret=test-secret \
+            > /dev/null
+          echo "Production template rendering: OK"
+
+  # ── Build & Push Docker Images ───────────────────────────────
+  build-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend-tag: ${{ steps.meta-backend.outputs.tags }}
+      frontend-tag: ${{ steps.meta-frontend.outputs.tags }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "version=sha-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Backend image
+      - name: Extract backend metadata
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_BACKEND }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+      # Frontend image
+      - name: Extract frontend metadata
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_FRONTEND }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            NEXT_PUBLIC_API_URL=__BACKEND_URL__
+            NEXT_PUBLIC_WS_URL=__WS_URL__
+
+  # ── Package & Publish Helm Chart ─────────────────────────────
+  helm-release:
+    name: Package Helm Chart
+    runs-on: ubuntu-latest
+    needs: build-images
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.14.0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Update Chart.yaml version
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          sed -i "s/^version: .*/version: ${VERSION}/" helm/elasticguard/Chart.yaml
+          sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" helm/elasticguard/Chart.yaml
+
+      - name: Package Helm chart
+        run: |
+          helm package helm/elasticguard/ -d helm-packages/
+          ls -la helm-packages/
+
+      - name: Push Helm chart to GHCR OCI registry
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login \
+            ghcr.io --username ${{ github.actor }} --password-stdin
+          helm push helm-packages/elasticguard-${VERSION}.tgz \
+            oci://ghcr.io/${{ github.repository_owner }}/helm-charts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: helm-packages/*.tgz
+          generate_release_notes: true
+          body: |
+            ## ElasticGuard ${{ steps.version.outputs.version }}
+
+            ### Install via Helm (OCI)
+            ```bash
+            helm install elasticguard \
+              oci://ghcr.io/${{ github.repository_owner }}/helm-charts/elasticguard \
+              --version ${{ steps.version.outputs.version }} \
+              -n monitoring --create-namespace
+            ```
+
+            ### Images
+            - Backend: `ghcr.io/${{ env.IMAGE_BACKEND }}:${{ steps.version.outputs.version }}`
+            - Frontend: `ghcr.io/${{ env.IMAGE_FRONTEND }}:${{ steps.version.outputs.version }}`

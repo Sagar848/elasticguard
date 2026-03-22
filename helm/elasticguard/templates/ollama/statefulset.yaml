@@ -1,0 +1,166 @@
+{{- if .Values.ollama.enabled -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "elasticguard.ollama.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+spec:
+  replicas: 1
+  serviceName: {{ include "elasticguard.ollama.fullname" . }}
+  selector:
+    matchLabels:
+      {{- include "elasticguard.componentLabels" (list "ollama" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "elasticguard.componentLabels" (list "ollama" .) | nindent 8 }}
+    spec:
+      {{- include "elasticguard.imagePullSecrets" . | nindent 6 }}
+      {{- with .Values.ollama.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ollama.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ollama
+          image: "{{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}"
+          imagePullPolicy: {{ .Values.ollama.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 11434
+              protocol: TCP
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0"
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          {{- with .Values.ollama.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+            {{- if $.Values.ollama.gpu.enabled }}
+            limits:
+              {{- toYaml (fromJson (printf "{%q: %d}" $.Values.ollama.gpu.resourceKey $.Values.ollama.gpu.count)) | nindent 14 }}
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
+  volumeClaimTemplates:
+    - metadata:
+        name: ollama-data
+        labels:
+          {{- include "elasticguard.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          - {{ .Values.ollama.persistence.accessMode }}
+        resources:
+          requests:
+            storage: {{ .Values.ollama.persistence.size }}
+        {{- include "elasticguard.storageClass" (dict "sc" .Values.ollama.persistence.storageClass "global" .Values.global.storageClass) | nindent 8 }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "elasticguard.ollama.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+spec:
+  type: {{ .Values.ollama.service.type }}
+  clusterIP: None   # Headless for StatefulSet DNS
+  ports:
+    - port: {{ .Values.ollama.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "elasticguard.componentLabels" (list "ollama" .) | nindent 4 }}
+
+---
+{{/*
+Job to pull Ollama models on first install.
+Uses helm.sh/hook so it runs after the StatefulSet is ready.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "elasticguard.ollama.fullname" . }}-model-pull
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "elasticguard.componentLabels" (list "ollama-init" .) | nindent 8 }}
+    spec:
+      {{- include "elasticguard.imagePullSecrets" . | nindent 6 }}
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-ollama
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Ollama to be ready..."
+              until wget -qO- http://{{ include "elasticguard.ollama.fullname" . }}:{{ .Values.ollama.service.port }}/api/tags > /dev/null 2>&1; do
+                echo "Ollama not ready yet, sleeping 10s..."
+                sleep 10
+              done
+              echo "Ollama is ready!"
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits:   { cpu: 50m, memory: 32Mi }
+      containers:
+        - name: model-puller
+          image: "{{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}"
+          env:
+            - name: OLLAMA_HOST
+              value: "http://{{ include "elasticguard.ollama.fullname" . }}:{{ .Values.ollama.service.port }}"
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              {{- range .Values.ollama.models }}
+              echo "Pulling model: {{ . }}"
+              ollama pull {{ . }}
+              echo "Done: {{ . }}"
+              {{- end }}
+              echo "All models pulled successfully."
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+{{- end }}

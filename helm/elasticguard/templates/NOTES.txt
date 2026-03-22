@@ -1,0 +1,78 @@
+╔══════════════════════════════════════════════════════════════╗
+║           ElasticGuard installed successfully!               ║
+╚══════════════════════════════════════════════════════════════╝
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+Version:   {{ .Chart.AppVersion }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{- if .Values.ingress.enabled }}
+🌐  ACCESS VIA INGRESS:
+
+  Frontend:  http://{{ (first .Values.ingress.hosts).host }}
+  {{- if .Values.ingress.apiHosts }}
+  Backend:   http://{{ (first .Values.ingress.apiHosts).host }}
+  {{- end }}
+  {{- if .Values.grafana.enabled }}
+  Grafana:   Add a separate ingress or use port-forward below
+  {{- end }}
+
+{{- else }}
+🔌  PORT-FORWARD TO ACCESS LOCALLY:
+
+  # ElasticGuard UI (frontend)
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ include "elasticguard.frontend.fullname" . }} 3000:{{ .Values.frontend.service.port }}
+  → Open: http://localhost:3000
+
+  # Backend API / Swagger docs
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ include "elasticguard.backend.fullname" . }} 8000:{{ .Values.backend.service.port }}
+  → Swagger: http://localhost:8000/docs
+
+  {{- if .Values.grafana.enabled }}
+  # Grafana dashboards
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ include "elasticguard.grafana.fullname" . }} 3001:{{ .Values.grafana.service.port }}
+  → Grafana: http://localhost:3001
+  → Login:   {{ .Values.grafana.adminUser }} / {{ .Values.grafana.adminPassword }}
+  {{- end }}
+
+  {{- if .Values.prometheus.enabled }}
+  # Prometheus
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ include "elasticguard.prometheus.fullname" . }} 9090:{{ .Values.prometheus.service.port }}
+  → Open: http://localhost:9090
+  {{- end }}
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🤖  AI PROVIDER:   {{ .Values.ai.defaultProvider | upper }}
+{{- if and (eq .Values.ai.defaultProvider "ollama") .Values.ollama.enabled }}
+
+    Ollama is starting and pulling models: {{ join ", " .Values.ollama.models }}
+    This can take several minutes on first install.
+
+    Monitor progress:
+    kubectl logs -n {{ .Release.Namespace }} \
+      -l app.kubernetes.io/component=ollama-init -f
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋  COMPONENT STATUS:
+
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📖  DOCUMENTATION:   https://github.com/your-org/elasticsearch-ai-diagnostics
+
+⚠️   SECURITY REMINDER:
+    Change these values before production use:
+      --set app.secretKey=<random-32-char-string>
+      --set app.approvalWebhookSecret=<random-secret>
+      --set grafana.adminPassword=<strong-password>

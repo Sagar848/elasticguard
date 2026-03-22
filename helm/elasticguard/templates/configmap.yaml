@@ -1,0 +1,104 @@
+{{/*
+ElasticGuard — ConfigMap
+Non-sensitive runtime configuration for backend and frontend.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "elasticguard.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+data:
+  # ── Monitoring ──────────────────────────────────────────────────────────────
+  MONITORING_INTERVAL_SECONDS: {{ .Values.app.monitoringIntervalSeconds | quote }}
+  APPROVAL_TIMEOUT_MINUTES: {{ .Values.app.approvalTimeoutMinutes | quote }}
+  ALERT_CPU_THRESHOLD: {{ .Values.app.alertCpuThreshold | quote }}
+  ALERT_JVM_THRESHOLD: {{ .Values.app.alertJvmThreshold | quote }}
+  ALERT_DISK_THRESHOLD: {{ .Values.app.alertDiskThreshold | quote }}
+
+  # ── Storage paths ────────────────────────────────────────────────────────────
+  CHROMA_PERSIST_DIR: /app/data/chroma
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+  NEXT_PUBLIC_API_URL: {{ include "elasticguard.backend.url" . | quote }}
+  NEXT_PUBLIC_WS_URL: {{ include "elasticguard.backend.url" . | replace "http" "ws" | quote }}
+
+---
+{{/*
+Prometheus config — mounted as a file inside the Prometheus pod.
+*/}}
+{{- if .Values.prometheus.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "elasticguard.prometheus.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.prometheus.scrapeInterval }}
+      evaluation_interval: {{ .Values.prometheus.scrapeInterval }}
+      scrape_timeout: 10s
+
+    scrape_configs:
+      - job_name: 'elasticguard-backend'
+        static_configs:
+          - targets:
+              - '{{ include "elasticguard.backend.fullname" . }}:{{ .Values.backend.service.port }}'
+        metrics_path: /metrics/prometheus/metrics
+        scrape_interval: {{ .Values.prometheus.scrapeInterval }}
+
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+{{- end }}
+
+---
+{{/*
+Grafana datasource provisioning ConfigMap.
+*/}}
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "elasticguard.grafana.fullname" . }}-datasources
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  datasources.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://{{ include "elasticguard.prometheus.fullname" . }}:{{ .Values.prometheus.service.port }}
+        isDefault: true
+        editable: true
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "elasticguard.grafana.fullname" . }}-dashboards-provider
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  dashboards.yml: |
+    apiVersion: 1
+    providers:
+      - name: ElasticGuard
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /etc/grafana/dashboards
+{{- end }}

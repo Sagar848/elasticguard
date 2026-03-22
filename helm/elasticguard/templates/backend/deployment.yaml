@@ -1,0 +1,126 @@
+{{- if .Values.backend.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "elasticguard.backend.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  {{- if not .Values.backend.autoscaling.enabled }}
+  replicas: {{ .Values.backend.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "elasticguard.componentLabels" (list "backend" .) | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "elasticguard.componentLabels" (list "backend" .) | nindent 8 }}
+      annotations:
+        # Force pod restart when secret/configmap changes
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- include "elasticguard.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "elasticguard.serviceAccountName" . }}
+      {{- with .Values.backend.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      initContainers:
+        # Wait for Ollama to be ready before starting
+        {{- if .Values.ollama.enabled }}
+        - name: wait-for-ollama
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Ollama at {{ include "elasticguard.ollama.url" . }}..."
+              until wget -qO- {{ include "elasticguard.ollama.url" . }}/api/tags > /dev/null 2>&1; do
+                echo "Ollama not ready, retrying in 5s..."
+                sleep 5
+              done
+              echo "Ollama is ready."
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+        {{- end }}
+
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          {{- with .Values.backend.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "elasticguard.fullname" . }}-config
+            - secretRef:
+                name: {{ if .Values.ai.existingSecret }}{{ .Values.ai.existingSecret }}{{ else }}{{ include "elasticguard.fullname" . }}-secrets{{ end }}
+            {{- if .Values.notifications.existingSecret }}
+            - secretRef:
+                name: {{ .Values.notifications.existingSecret }}
+            {{- end }}
+            {{- with .Values.backend.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.backend.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backend.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backend.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backend.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: chroma-data
+              mountPath: {{ .Values.backend.persistence.mountPath }}
+
+      volumes:
+        - name: chroma-data
+          {{- if .Values.backend.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "elasticguard.backend.fullname" . }}-chroma
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

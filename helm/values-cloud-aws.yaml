@@ -1,0 +1,110 @@
+# ═══════════════════════════════════════════════════════════════
+#  ElasticGuard — AWS EKS Values
+#
+#  Prerequisites:
+#   - EKS cluster with ALB Ingress Controller OR nginx ingress
+#   - EBS CSI driver installed (for PVCs)
+#   - cert-manager (for TLS)
+#   - ECR images pushed (update repository values)
+#
+#  Usage:
+#    helm install elasticguard ./elasticguard \
+#      -n monitoring --create-namespace \
+#      -f values-cloud-aws.yaml \
+#      --set app.secretKey=$(openssl rand -hex 32) \
+#      --set ai.openai.apiKey=$OPENAI_KEY
+# ═══════════════════════════════════════════════════════════════
+
+global:
+  storageClass: "gp2"    # or gp3 — must have EBS CSI driver
+
+backend:
+  image:
+    repository: 123456789.dkr.ecr.us-east-1.amazonaws.com/elasticguard-backend
+    tag: "1.0.0"
+  replicaCount: 2
+  persistence:
+    size: 5Gi
+    storageClass: "gp3"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  # IRSA — grant access to AWS services if needed
+  # serviceAccount:
+  #   annotations:
+  #     eks.amazonaws.com/role-arn: arn:aws:iam::123456789:role/elasticguard-backend
+
+frontend:
+  image:
+    repository: 123456789.dkr.ecr.us-east-1.amazonaws.com/elasticguard-frontend
+    tag: "1.0.0"
+  replicaCount: 2
+
+ingress:
+  enabled: true
+  className: alb     # AWS ALB Ingress Controller
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789:certificate/your-cert-arn
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # WebSocket support for ALB
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    alb.ingress.kubernetes.io/connection-idle-timeout: "3600"
+  hosts:
+    - host: elasticguard.your-domain.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+  apiHosts:
+    - host: elasticguard-api.your-domain.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+ai:
+  defaultProvider: openai
+  # Use existingSecret — create with:
+  # kubectl create secret generic elasticguard-ai-keys \
+  #   --from-literal=OPENAI_API_KEY=sk-... \
+  #   -n monitoring
+  existingSecret: elasticguard-ai-keys
+
+ollama:
+  enabled: false    # use cloud AI on AWS
+
+prometheus:
+  enabled: true
+  persistence:
+    size: 20Gi
+    storageClass: "gp3"
+  retentionTime: 30d
+
+grafana:
+  enabled: true
+  persistence:
+    size: 5Gi
+    storageClass: "gp3"
+  # Create secret: kubectl create secret generic elasticguard-grafana-admin \
+  #   --from-literal=admin-user=admin \
+  #   --from-literal=admin-password=yourpassword \
+  #   -n monitoring
+  existingSecret: elasticguard-grafana-admin
+
+networkPolicy:
+  enabled: true
+
+podDisruptionBudget:
+  backend:
+    enabled: true
+    minAvailable: 1
+  frontend:
+    enabled: true
+    minAvailable: 1

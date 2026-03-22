@@ -1,0 +1,111 @@
+# ═══════════════════════════════════════════════════════════════
+#  ElasticGuard — Azure AKS Values
+#
+#  Prerequisites:
+#   - AKS cluster with AGIC (Application Gateway Ingress) or nginx
+#   - Azure Disk CSI driver (default in AKS 1.21+)
+#   - ACR images pushed (update repository values below)
+#   - cert-manager or Azure-managed TLS
+#
+#  Usage:
+#    helm install elasticguard ./helm/elasticguard \
+#      -n monitoring --create-namespace \
+#      -f helm/values-cloud-azure.yaml \
+#      --set app.secretKey=$(openssl rand -hex 32) \
+#      --set ai.openai.apiKey=$OPENAI_KEY
+# ═══════════════════════════════════════════════════════════════
+
+global:
+  storageClass: "managed-premium"   # Azure Premium SSD; use managed-standard for cheaper
+
+backend:
+  image:
+    repository: yourregistry.azurecr.io/elasticguard-backend
+    tag: "1.0.0"
+  replicaCount: 2
+  persistence:
+    size: 5Gi
+    storageClass: "managed-premium"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+frontend:
+  image:
+    repository: yourregistry.azurecr.io/elasticguard-frontend
+    tag: "1.0.0"
+  replicaCount: 2
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+  hosts:
+    - host: elasticguard.your-domain.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+  apiHosts:
+    - host: elasticguard-api.your-domain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: elasticguard-tls
+      hosts:
+        - elasticguard.your-domain.com
+        - elasticguard-api.your-domain.com
+
+ai:
+  defaultProvider: openai
+  # Create secret: kubectl create secret generic elasticguard-ai-keys \
+  #   --from-literal=OPENAI_API_KEY=sk-... \
+  #   --from-literal=DEFAULT_AI_PROVIDER=openai \
+  #   -n monitoring
+  existingSecret: elasticguard-ai-keys
+
+ollama:
+  enabled: false   # Use OpenAI/Azure OpenAI on AKS
+
+prometheus:
+  enabled: true
+  persistence:
+    size: 20Gi
+    storageClass: "managed-premium"
+  retentionTime: 30d
+
+grafana:
+  enabled: true
+  persistence:
+    size: 5Gi
+    storageClass: "managed-standard"
+  existingSecret: elasticguard-grafana-admin
+
+networkPolicy:
+  enabled: true
+
+podDisruptionBudget:
+  backend:
+    enabled: true
+    minAvailable: 1
+  frontend:
+    enabled: true
+    minAvailable: 1
+
+serviceAccount:
+  create: true
+  annotations:
+    # Azure Workload Identity (if using Azure Key Vault for secrets)
+    # azure.workload.identity/client-id: "your-managed-identity-client-id"

@@ -1,0 +1,266 @@
+{{- if .Values.grafana.enabled -}}
+{{- $secretName := ternary .Values.grafana.existingSecret (printf "%s-grafana-admin" (include "elasticguard.fullname" .)) (ne .Values.grafana.existingSecret "") -}}
+
+{{/*
+Grafana admin secret — only created when existingSecret is not set.
+*/}}
+{{- if not .Values.grafana.existingSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "elasticguard.grafana.fullname" . }}-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+type: Opaque
+stringData:
+  admin-user: {{ .Values.grafana.adminUser | quote }}
+  admin-password: {{ .Values.grafana.adminPassword | quote }}
+{{- end }}
+
+---
+{{/*
+Grafana dashboard JSON as ConfigMap.
+The actual JSON is read from the file at render time via tpl.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "elasticguard.grafana.fullname" . }}-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  elasticguard.json: |
+    {
+      "title": "ElasticGuard — Elasticsearch Monitoring",
+      "uid": "elasticguard-main",
+      "schemaVersion": 37,
+      "style": "dark",
+      "refresh": "15s",
+      "tags": ["elasticsearch", "elasticguard"],
+      "time": {"from": "now-1h", "to": "now"},
+      "panels": [
+        {
+          "id": 1, "type": "stat", "title": "Cluster Health",
+          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+          "targets": [{"expr": "elasticguard_cluster_status", "legendFormat": "{{cluster}}"}],
+          "fieldConfig": {"defaults": {"mappings": [
+            {"options": {"0":{"color":"green","text":"GREEN"},"1":{"color":"yellow","text":"YELLOW"},"2":{"color":"red","text":"RED"}},"type":"value"}
+          ], "thresholds": {"steps": [{"color":"green","value":null},{"color":"yellow","value":1},{"color":"red","value":2}]}}},
+          "options": {"colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}}
+        },
+        {
+          "id": 2, "type": "stat", "title": "Unassigned Shards",
+          "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+          "targets": [{"expr": "elasticguard_cluster_unassigned_shards", "legendFormat": "{{cluster}}"}],
+          "fieldConfig": {"defaults": {"thresholds": {"steps":[{"color":"green","value":null},{"color":"red","value":1}]}}},
+          "options": {"colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}}
+        },
+        {
+          "id": 3, "type": "stat", "title": "Nodes",
+          "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+          "targets": [{"expr": "elasticguard_cluster_nodes", "legendFormat": "{{cluster}}"}],
+          "options": {"colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}}
+        },
+        {
+          "id": 4, "type": "stat", "title": "Active Shards",
+          "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+          "targets": [{"expr": "elasticguard_cluster_active_shards", "legendFormat": "{{cluster}}"}],
+          "options": {"colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}}
+        },
+        {
+          "id": 10, "type": "timeseries", "title": "CPU % per Node",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "targets": [{"expr": "elasticguard_node_cpu_percent", "legendFormat": "{{node}}"}],
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100,
+            "thresholds": {"steps":[{"color":"green","value":null},{"color":"yellow","value":70},{"color":"red","value":85}]}}}
+        },
+        {
+          "id": 11, "type": "timeseries", "title": "JVM Heap % per Node",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "targets": [{"expr": "elasticguard_node_heap_percent", "legendFormat": "{{node}}"}],
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100,
+            "thresholds": {"steps":[{"color":"green","value":null},{"color":"yellow","value":75},{"color":"red","value":90}]}}}
+        },
+        {
+          "id": 12, "type": "timeseries", "title": "Disk % per Node",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "targets": [{"expr": "elasticguard_node_disk_used_percent", "legendFormat": "{{node}}"}],
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100,
+            "thresholds": {"steps":[{"color":"green","value":null},{"color":"yellow","value":80},{"color":"red","value":90}]}}}
+        },
+        {
+          "id": 13, "type": "timeseries", "title": "GC Old Gen Rate per Node",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "targets": [{"expr": "rate(elasticguard_node_jvm_gc_old_count[5m])", "legendFormat": "{{node}} GC/s"}]
+        },
+        {
+          "id": 20, "type": "gauge", "title": "CPU % (current)",
+          "gridPos": {"h": 6, "w": 8, "x": 0, "y": 20},
+          "targets": [{"expr": "elasticguard_node_cpu_percent", "legendFormat": "{{node}}"}],
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100,
+            "thresholds": {"steps":[{"color":"green","value":null},{"color":"yellow","value":70},{"color":"red","value":85}]}}}
+        },
+        {
+          "id": 21, "type": "gauge", "title": "JVM Heap % (current)",
+          "gridPos": {"h": 6, "w": 8, "x": 8, "y": 20},
+          "targets": [{"expr": "elasticguard_node_heap_percent", "legendFormat": "{{node}}"}],
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100,
+            "thresholds": {"steps":[{"color":"green","value":null},{"color":"yellow","value":75},{"color":"red","value":90}]}}}
+        },
+        {
+          "id": 22, "type": "gauge", "title": "Disk % (current)",
+          "gridPos": {"h": 6, "w": 8, "x": 16, "y": 20},
+          "targets": [{"expr": "elasticguard_node_disk_used_percent", "legendFormat": "{{node}}"}],
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100,
+            "thresholds": {"steps":[{"color":"green","value":null},{"color":"yellow","value":80},{"color":"red","value":90}]}}}
+        }
+      ]
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "elasticguard.grafana.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "elasticguard.componentLabels" (list "grafana" .) | nindent 6 }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "elasticguard.componentLabels" (list "grafana" .) | nindent 8 }}
+    spec:
+      {{- include "elasticguard.imagePullSecrets" . | nindent 6 }}
+      {{- with .Values.grafana.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.grafana.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472      # grafana user
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: "{{ .Values.grafana.image.repository }}:{{ .Values.grafana.image.tag }}"
+          imagePullPolicy: {{ .Values.grafana.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.grafana.existingSecret }}{{ .Values.grafana.existingSecret }}{{ else }}{{ include "elasticguard.grafana.fullname" . }}-admin{{ end }}
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.grafana.existingSecret }}{{ .Values.grafana.existingSecret }}{{ else }}{{ include "elasticguard.grafana.fullname" . }}-admin{{ end }}
+                  key: admin-password
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_SERVER_HTTP_PORT
+              value: "3000"
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: /etc/grafana/dashboards/elasticguard.json
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          {{- with .Values.grafana.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: grafana-data
+              mountPath: /var/lib/grafana
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+              readOnly: true
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+              readOnly: true
+            - name: dashboards
+              mountPath: /etc/grafana/dashboards
+              readOnly: true
+      volumes:
+        - name: grafana-data
+          {{- if .Values.grafana.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "elasticguard.grafana.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: datasources
+          configMap:
+            name: {{ include "elasticguard.grafana.fullname" . }}-datasources
+        - name: dashboard-provider
+          configMap:
+            name: {{ include "elasticguard.grafana.fullname" . }}-dashboards-provider
+        - name: dashboards
+          configMap:
+            name: {{ include "elasticguard.grafana.fullname" . }}-dashboard
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "elasticguard.grafana.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  type: {{ .Values.grafana.service.type }}
+  ports:
+    - port: {{ .Values.grafana.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "elasticguard.componentLabels" (list "grafana" .) | nindent 4 }}
+
+---
+{{- if .Values.grafana.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "elasticguard.grafana.fullname" . }}-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "elasticguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  accessModes:
+    - {{ .Values.grafana.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.grafana.persistence.size }}
+  {{- include "elasticguard.storageClass" (dict "sc" .Values.grafana.persistence.storageClass "global" .Values.global.storageClass) | nindent 2 }}
+{{- end }}
+{{- end }}

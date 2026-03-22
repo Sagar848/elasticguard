@@ -1,0 +1,11 @@
+Currently approval from UI is not working. It going to approved section, but while executing it is asking for token, with below error in toast.
+
+```
+Approval not found or invalid token
+```
+
+Approval from UI should work, irrespective of approval from discord/slack/mail. all these forums are for providing same approval, just different options.
+
+Also, the connections i create, are gone once i reload the browser and I have to again add them. Can we keep the added connections in backend DB that we have.
+
+Also, the table that shows the indices, lets have the pagination support and also the column filter with sorting. So that it will be useful for users to browse through a large list.

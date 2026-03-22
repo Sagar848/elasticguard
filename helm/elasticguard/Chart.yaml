@@ -1,0 +1,29 @@
+apiVersion: v2
+name: elasticguard
+description: >
+  AI-Powered Elasticsearch Diagnostics & Monitoring Platform.
+  Includes FastAPI backend with LangGraph agents, Next.js frontend,
+  optional Ollama local LLM, Prometheus metrics, and Grafana dashboards.
+
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+  - elasticsearch
+  - monitoring
+  - diagnostics
+  - ai
+  - llm
+  - observability
+
+home: https://github.com/your-org/elasticsearch-ai-diagnostics
+sources:
+  - https://github.com/your-org/elasticsearch-ai-diagnostics
+
+maintainers:
+  - name: ElasticGuard Team
+    email: elasticguard@your-org.com
+
+annotations:
+  category: Observability
