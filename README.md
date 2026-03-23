@@ -81,6 +81,18 @@ Configure in Settings UI or `.env`:
 
 ---
 
+## URLS
+
+
+| Name | URL | 
+|---|---|
+| Frontend | http://localhost:8000 |
+| Backend | http://localhost:8000 |
+| Swagger API | http://localhost:8000/docs |
+| Prometheus metrics | http://localhost:8000/metrics/prometheus/metrics |
+
+---
+
 ## Notification & Approval Setup
 
 When AI suggests a fix, you'll be notified with **[Approve] / [Reject]** buttons.
