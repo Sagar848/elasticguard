@@ -86,7 +86,7 @@ Configure in Settings UI or `.env`:
 
 | Name | URL | 
 |---|---|
-| Frontend | http://localhost:8000 |
+| Frontend | http://localhost:3000 |
 | Backend | http://localhost:8000 |
 | Swagger API | http://localhost:8000/docs |
 | Prometheus metrics | http://localhost:8000/metrics/prometheus/metrics |
