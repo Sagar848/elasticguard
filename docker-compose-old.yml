@@ -67,18 +67,14 @@ services:
       args:
         REGISTRY_PREFIX: ${REGISTRY_PREFIX:-}
         NODE_IMAGE: node:20-alpine
-        # NEXT_PUBLIC_API_URL must be reachable FROM THE BROWSER, not from inside Docker.
-        # localhost:8000 is correct because the backend port is published to the host.
-        # Override with your server IP/hostname if accessing from another machine:
-        #   NEXT_PUBLIC_API_URL=http://192.168.1.100:8000 docker compose up
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://backend:8000}
     image: elasticguard-frontend:${TAG:-latest}
     container_name: elasticguard-frontend
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:8000}
       - NODE_ENV=production
     depends_on:
       backend:
@@ -87,18 +83,18 @@ services:
       - elasticguard
 
   # ── Ollama (optional local LLM) ─────────────────────────────────────────────
-  ollama:
-    image: ${REGISTRY_PREFIX:-}${OLLAMA_IMAGE:-ollama/ollama:latest}
-    container_name: elasticguard-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    profiles:
-      - ollama
-    networks:
-      - elasticguard
+  # ollama:
+  #   image: ${REGISTRY_PREFIX:-}${OLLAMA_IMAGE:-ollama/ollama:latest}
+  #   container_name: elasticguard-ollama
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   profiles:
+  #     - ollama
+  #   networks:
+  #     - elasticguard
 
 volumes:
   elasticguard-data:

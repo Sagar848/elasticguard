@@ -1,0 +1,130 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#  ElasticGuard — Pre-built Image Compose (Docker Hub)
+#
+#  No code or build step required. Just create a .env file and run:
+#
+#    curl -O https://raw.githubusercontent.com/YOUR_ORG/elasticguard/main/docker-compose.hub.yml
+#    curl -O https://raw.githubusercontent.com/YOUR_ORG/elasticguard/main/.env.example
+#    cp .env.example .env
+#    # Edit .env with your API keys
+#    docker compose -f docker-compose.hub.yml up -d
+#
+#  Or use the start.sh helper (if you have the repo):
+#    ./start.sh run
+#
+#  To update to the latest version:
+#    docker compose -f docker-compose.hub.yml pull
+#    docker compose -f docker-compose.hub.yml up -d
+# ═══════════════════════════════════════════════════════════════════════════════
+
+version: '3.9'
+
+# ── Image configuration ───────────────────────────────────────────────────────
+# Override DOCKER_HUB_USER to use your own Docker Hub account.
+# Override TAG to pin to a specific version (e.g. TAG=1.2.0).
+#
+#   DOCKER_HUB_USER=myorg TAG=1.2.0 docker compose -f docker-compose.hub.yml up -d
+
+x-images:
+  backend-image:  &backend-image  ${DOCKER_HUB_USER:-yourdockerhubuser}/elasticguard-backend:${TAG:-latest}
+  frontend-image: &frontend-image ${DOCKER_HUB_USER:-yourdockerhubuser}/elasticguard-frontend:${TAG:-latest}
+
+services:
+
+  # ── Backend ──────────────────────────────────────────────────────────────────
+  backend:
+    image: *backend-image
+    container_name: elasticguard-backend
+    restart: unless-stopped
+    pull_policy: always          # always pull latest on `docker compose up`
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      # ── App ─────────────────────────────────────────────────────────────────
+      - DATABASE_URL=sqlite+aiosqlite:///./data/elasticguard.db
+      - CHROMA_PERSIST_DIR=/app/data/chroma
+      - KNOWLEDGE_BASE_DIR=/app/knowledge/docs
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # ── AI Provider (set at least one) ───────────────────────────────────────
+      - DEFAULT_AI_PROVIDER=${DEFAULT_AI_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_DEFAULT_MODEL=${OPENAI_DEFAULT_MODEL:-gpt-4o}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_DEFAULT_MODEL=${GEMINI_DEFAULT_MODEL:-gemini-2.0-flash}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_DEFAULT_MODEL=${ANTHROPIC_DEFAULT_MODEL:-claude-3-5-sonnet-20241022}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_DEFAULT_MODEL=${OLLAMA_DEFAULT_MODEL:-llama3.2}
+
+      # ── Notifications (all optional) ─────────────────────────────────────────
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID:-}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - NOTIFICATION_EMAILS=${NOTIFICATION_EMAILS:-}
+
+      # ── Monitoring thresholds ────────────────────────────────────────────────
+      - MONITORING_INTERVAL_SECONDS=${MONITORING_INTERVAL_SECONDS:-30}
+      - ALERT_CPU_THRESHOLD=${ALERT_CPU_THRESHOLD:-80}
+      - ALERT_JVM_THRESHOLD=${ALERT_JVM_THRESHOLD:-85}
+      - ALERT_DISK_THRESHOLD=${ALERT_DISK_THRESHOLD:-85}
+    volumes:
+      - elasticguard-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - elasticguard
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+  frontend:
+    image: *frontend-image
+    container_name: elasticguard-frontend
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      # This is the URL the BROWSER uses to reach the backend API.
+      # Default: localhost works when accessing from the same machine.
+      # Change to your server IP if accessing from another machine:
+      #   NEXT_PUBLIC_API_URL=http://192.168.1.50:8000
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NODE_ENV=production
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - elasticguard
+
+  # ── Ollama (optional local LLM — no API key needed) ───────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: elasticguard-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    profiles:
+      - ollama
+    networks:
+      - elasticguard
+
+volumes:
+  elasticguard-data:    # persistent ES connection DB, ChromaDB
+  ollama-data:          # Ollama model files
+
+networks:
+  elasticguard:
+    driver: bridge

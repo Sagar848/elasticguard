@@ -1,0 +1,73 @@
+# ── Python runtime artifacts ──────────────────────────────────────────────────
+venv/
+.venv/
+env/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+*.whl
+.installed.cfg
+lib/
+lib64/
+
+# ── Data / DB / Vector store ──────────────────────────────────────────────────
+# These are created at runtime and mounted via Docker volumes
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# ── ChromaDB ──────────────────────────────────────────────────────────────────
+chroma/
+.chroma/
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── Test / Dev ────────────────────────────────────────────────────────────────
+tests/
+test/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+.tox/
+
+# ── IDE / OS ──────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.sw[pon]
+.DS_Store
+Thumbs.db
+*~
+
+# ── Git ───────────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── Docker itself ─────────────────────────────────────────────────────────────
+Dockerfile
+.dockerignore
+
+# ── Docs / CI ─────────────────────────────────────────────────────────────────
+*.md
+*.rst
+.github/
+docs/
+
+# ── Env files (secrets — never bake into image) ───────────────────────────────
+.env
+.env.*

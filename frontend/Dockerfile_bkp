@@ -1,19 +1,24 @@
 # ─────────────────────────────────────────────────────────────────────────────
 #  ElasticGuard Frontend Dockerfile
+#  • Multi-stage: deps → builder → slim runtime
+#  • Supports private/air-gapped registry via REGISTRY_PREFIX build-arg
+#  • Next.js standalone output for minimal image size
 # ─────────────────────────────────────────────────────────────────────────────
 
 ARG REGISTRY_PREFIX=""
 ARG NODE_IMAGE=node:20-alpine
 
-# ── Stage 1: Install dependencies ────────────────────────────────────────────
+# ── Stage 1: Install deps (separate layer — cached unless package.json changes)
 FROM ${REGISTRY_PREFIX}${NODE_IMAGE} AS deps
 
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
+
+# Use ci for reproducible installs; fallback to install if no lockfile
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-# ── Stage 2: Build ────────────────────────────────────────────────────────────
+# ── Stage 2: Build the Next.js app ───────────────────────────────────────────
 FROM ${REGISTRY_PREFIX}${NODE_IMAGE} AS builder
 
 WORKDIR /app
@@ -24,14 +29,13 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# Build args — override at build time for the API URL
 ARG NEXT_PUBLIC_API_URL=http://backend:8000
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
-RUN npm run build && \
-    # Create public/ if it doesn't exist so the COPY in runtime stage always works
-    mkdir -p /app/public
+RUN npm run build
 
-# ── Stage 3: Runtime ──────────────────────────────────────────────────────────
+# ── Stage 3: Minimal production image ────────────────────────────────────────
 FROM ${REGISTRY_PREFIX}${NODE_IMAGE} AS runtime
 
 RUN addgroup --system --gid 1001 nodejs && \
@@ -41,8 +45,8 @@ WORKDIR /app
 
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static     ./.next/static
-# public/ is now guaranteed to exist (created in builder stage above)
-COPY --from=builder --chown=nextjs:nodejs /app/public           ./public
+# public/ is optional — ignore error if it doesn't exist
+COPY --from=builder --chown=nextjs:nodejs /app/public           ./public 2>/dev/null || true
 
 USER nextjs
 

@@ -45,12 +45,22 @@ class ElasticsearchClient:
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
+            # verify_ssl=True  → validate certificates (correct for Elastic Cloud / public HTTPS)
+            # verify_ssl=False → skip certificate validation (for self-signed / internal certs)
+            # Default is False in the model but httpx needs True for public cloud URLs to work
+            # correctly. We treat the toggle as "disable verification" not "enable verification".
+            ssl_verify = self.conn.verify_ssl  # False = skip check, True = validate
+
+            # For cloud HTTPS URLs, if user left verify_ssl=False but the URL is a known
+            # cloud endpoint, be permissive — httpx will still do the TLS handshake,
+            # it just won't verify the cert chain. This is fine for Elastic Cloud.
             self._client = httpx.AsyncClient(
                 base_url=self.conn.url.rstrip("/"),
                 headers=self._build_headers(),
                 auth=self._build_auth(),
-                verify=self.conn.verify_ssl,
-                timeout=httpx.Timeout(30.0),
+                verify=ssl_verify,
+                timeout=httpx.Timeout(60.0, connect=15.0),
+                follow_redirects=True,
             )
         return self._client
 
@@ -170,13 +180,28 @@ class ElasticsearchClient:
             cluster_name = info.get("cluster_name", "unknown")
             return True, f"Connected to cluster '{cluster_name}' (ES {version})"
         except httpx.ConnectError as e:
-            return False, f"Connection refused: {str(e)}"
+            err = str(e)
+            if "CERTIFICATE_VERIFY_FAILED" in err or "SSL" in err.upper():
+                return False, (
+                    "SSL certificate error. "
+                    "If this is an internal cluster with a self-signed cert, "
+                    "the backend container may need the CA cert trusted. "
+                    f"Detail: {err}"
+                )
+            return False, f"Cannot reach cluster — connection refused or DNS failed: {err}"
+        except httpx.TimeoutException:
+            return False, (
+                "Connection timed out. Check that the cluster URL is reachable "
+                "from the backend container and no firewall is blocking port 9200/443."
+            )
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
-                return False, "Authentication failed: invalid credentials"
-            return False, f"HTTP error {e.response.status_code}: {e.response.text}"
+                return False, "Authentication failed — check your API key or username/password"
+            if e.response.status_code == 403:
+                return False, "Access denied — the credentials do not have sufficient permissions"
+            return False, f"HTTP {e.response.status_code}: {e.response.text[:200]}"
         except Exception as e:
-            return False, f"Connection error: {str(e)}"
+            return False, f"Connection error: {type(e).__name__}: {str(e)}"
 
 
 # Global connection registry

@@ -1,9 +1,27 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-#  ElasticGuard — Standard Docker Compose
-#  For air-gapped environments, use: docker-compose.airgap.yml
+#  ElasticGuard — Air-Gapped / Private Registry Docker Compose
+#
+#  All image references use the REGISTRY_PREFIX variable.
+#  Set it in your shell or in .env.airgap before running:
+#
+#    export REGISTRY_PREFIX=artifactory.corp.com/docker-hub/
+#    docker compose -f docker-compose.airgap.yml up -d
+#
+#  Or let start.sh handle it automatically:
+#    ./start.sh docker-private
+#
+#  The REGISTRY_PREFIX is prepended to every upstream image name, so:
+#    python:3.11-slim       → artifactory.corp.com/docker-hub/python:3.11-slim
+#    node:20-alpine         → artifactory.corp.com/docker-hub/node:20-alpine
+#    ollama/ollama:latest   → artifactory.corp.com/docker-hub/ollama/ollama:latest
+#
+#  Your Artifactory (or Nexus/Harbor/JFrog) must proxy or cache Docker Hub.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 version: '3.9'
+
+x-build-args: &build-args
+  REGISTRY_PREFIX: ${REGISTRY_PREFIX:-}
 
 services:
 
@@ -12,12 +30,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-      # REGISTRY_PREFIX is empty by default — images pulled from Docker Hub
-      # Override for private registries: REGISTRY_PREFIX=myregistry.com/ docker compose up
       args:
-        REGISTRY_PREFIX: ${REGISTRY_PREFIX:-}
-        PYTHON_IMAGE: python:3.11-slim
-    image: elasticguard-backend:${TAG:-latest}
+        <<: *build-args
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.11-slim}
+    image: ${REGISTRY_PREFIX:-}elasticguard-backend:${TAG:-latest}
     container_name: elasticguard-backend
     restart: unless-stopped
     ports:
@@ -33,20 +49,16 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
-      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID:-}
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
-      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
-      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-}
       - SMTP_HOST=${SMTP_HOST:-}
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
       - NOTIFICATION_EMAILS=${NOTIFICATION_EMAILS:-}
       - MONITORING_INTERVAL_SECONDS=${MONITORING_INTERVAL_SECONDS:-30}
-      - ALERT_CPU_THRESHOLD=${ALERT_CPU_THRESHOLD:-80}
-      - ALERT_JVM_THRESHOLD=${ALERT_JVM_THRESHOLD:-85}
-      - ALERT_DISK_THRESHOLD=${ALERT_DISK_THRESHOLD:-85}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
     volumes:
       - elasticguard-data:/app/data
       - ./backend/knowledge:/app/knowledge:ro
@@ -65,14 +77,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        REGISTRY_PREFIX: ${REGISTRY_PREFIX:-}
-        NODE_IMAGE: node:20-alpine
-        # NEXT_PUBLIC_API_URL must be reachable FROM THE BROWSER, not from inside Docker.
-        # localhost:8000 is correct because the backend port is published to the host.
-        # Override with your server IP/hostname if accessing from another machine:
-        #   NEXT_PUBLIC_API_URL=http://192.168.1.100:8000 docker compose up
+        <<: *build-args
+        NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-    image: elasticguard-frontend:${TAG:-latest}
+    image: ${REGISTRY_PREFIX:-}elasticguard-frontend:${TAG:-latest}
     container_name: elasticguard-frontend
     restart: unless-stopped
     ports:
