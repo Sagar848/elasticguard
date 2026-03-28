@@ -17,6 +17,7 @@
 #  Modes (Docker Hub pre-built images, no source code needed):
 #    push            Build Docker images and push to Docker Hub
 #    run-docker      Pull images from Docker Hub and run with Docker
+#    run-docker-with-ollama Pull images from Docker Hub and run with Ollama
 #
 #  Utilities:
 #    stop            Stop all running services / containers
@@ -338,6 +339,116 @@ elif [ "$MODE" = "push" ]; then
   echo ""
   echo "Others can now run without any code:"
   echo -e "  ${Y}DOCKER_HUB_USER=${DOCKER_HUB_USER} ./start.sh run-docker${N}"
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  MODE: run-docker  — pull pre-built images from Docker Hub and run
+#                      No source code required
+# ═════════════════════════════════════════════════════════════════════════════
+elif [ "$MODE" = "run-docker" ]; then
+  need_docker
+
+  echo ""
+  echo -e "${B}Run from Docker Hub${N} — no source code needed."
+  div; echo ""
+
+  # Resolve Docker Hub user
+  DOCKER_HUB_USER="${DOCKER_HUB_USER:-}"
+  if [ -z "$DOCKER_HUB_USER" ] && [ -f ".env.hub" ]; then
+    # shellcheck source=/dev/null
+    source .env.hub
+    info "Using saved config from .env.hub (user: ${DOCKER_HUB_USER}, tag: ${TAG:-latest})"
+  fi
+  if [ -z "$DOCKER_HUB_USER" ]; then
+    printf "${B}Docker Hub username where images are published:${N} " >&2
+    read -r DOCKER_HUB_USER
+  fi
+  TAG="${TAG:-latest}"
+
+  ensure_env
+
+  if [ -z "${NEXT_PUBLIC_API_URL:-}" ]; then
+    export NEXT_PUBLIC_API_URL="http://localhost:8000"
+  fi
+
+  # Patch hub compose file with actual username
+  if [ -f "docker-compose.hub.yml" ]; then
+    sed -i.bak "s|yourdockerhubuser|${DOCKER_HUB_USER}|g" docker-compose.hub.yml 2>/dev/null \
+      || sed "s|yourdockerhubuser|${DOCKER_HUB_USER}|g" docker-compose.hub.yml > docker-compose.hub.tmp \
+         && mv docker-compose.hub.tmp docker-compose.hub.yml
+    rm -f docker-compose.hub.yml.bak
+  fi
+
+  info "Pulling ${DOCKER_HUB_USER}/elasticguard-backend:${TAG}..."
+  docker pull "${DOCKER_HUB_USER}/elasticguard-backend:${TAG}" \
+    || err "Pull failed. Is the image public on hub.docker.com/u/${DOCKER_HUB_USER}?"
+
+  info "Pulling ${DOCKER_HUB_USER}/elasticguard-frontend:${TAG}..."
+  docker pull "${DOCKER_HUB_USER}/elasticguard-frontend:${TAG}" \
+    || err "Pull failed."
+
+  DOCKER_HUB_USER="$DOCKER_HUB_USER" TAG="$TAG" \
+    docker compose -f docker-compose.hub.yml up -d
+
+  echo ""; ok "ElasticGuard is running!"; div
+  echo -e "  Frontend:  ${C}http://localhost:3000${N}"
+  echo -e "  Backend:   ${C}http://localhost:8000${N}"
+  echo -e "  Images:    ${C}hub.docker.com/u/${DOCKER_HUB_USER}${N}"; div
+  echo -e "  Logs: ${Y}./start.sh logs --hub${N}    Stop: ${Y}./start.sh stop${N}"
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  MODE: run-docker-with-ollama  — pull pre-built images from Docker Hub and run with Ollama
+#                      No source code required
+# ═════════════════════════════════════════════════════════════════════════════
+elif [ "$MODE" = "run-docker-with-ollama" ]; then
+  need_docker
+
+  echo ""
+  echo -e "${B}Run from Docker Hub${N} — no source code needed."
+  div; echo ""
+
+  # Resolve Docker Hub user
+  DOCKER_HUB_USER="${DOCKER_HUB_USER:-}"
+  if [ -z "$DOCKER_HUB_USER" ] && [ -f ".env.hub" ]; then
+    # shellcheck source=/dev/null
+    source .env.hub
+    info "Using saved config from .env.hub (user: ${DOCKER_HUB_USER}, tag: ${TAG:-latest})"
+  fi
+  if [ -z "$DOCKER_HUB_USER" ]; then
+    printf "${B}Docker Hub username where images are published:${N} " >&2
+    read -r DOCKER_HUB_USER
+  fi
+  TAG="${TAG:-latest}"
+
+  ensure_env
+
+  if [ -z "${NEXT_PUBLIC_API_URL:-}" ]; then
+    export NEXT_PUBLIC_API_URL="http://localhost:8000"
+  fi
+
+  # Patch hub compose file with actual username
+  if [ -f "docker-compose.hub.yml" ]; then
+    sed -i.bak "s|yourdockerhubuser|${DOCKER_HUB_USER}|g" docker-compose.hub.yml 2>/dev/null \
+      || sed "s|yourdockerhubuser|${DOCKER_HUB_USER}|g" docker-compose.hub.yml > docker-compose.hub.tmp \
+         && mv docker-compose.hub.tmp docker-compose.hub.yml
+    rm -f docker-compose.hub.yml.bak
+  fi
+
+  info "Pulling ${DOCKER_HUB_USER}/elasticguard-backend:${TAG}..."
+  docker pull "${DOCKER_HUB_USER}/elasticguard-backend:${TAG}" \
+    || err "Pull failed. Is the image public on hub.docker.com/u/${DOCKER_HUB_USER}?"
+
+  info "Pulling ${DOCKER_HUB_USER}/elasticguard-frontend:${TAG}..."
+  docker pull "${DOCKER_HUB_USER}/elasticguard-frontend:${TAG}" \
+    || err "Pull failed."
+
+  DOCKER_HUB_USER="$DOCKER_HUB_USER" TAG="$TAG" \
+    docker compose -profile ollama -f docker-compose.hub.yml up -d
+
+  echo ""; ok "ElasticGuard is running!"; div
+  echo -e "  Frontend:  ${C}http://localhost:3000${N}"
+  echo -e "  Backend:   ${C}http://localhost:8000${N}"
+  echo -e "  Images:    ${C}hub.docker.com/u/${DOCKER_HUB_USER}${N}"; div
+  echo -e "  Logs: ${Y}./start.sh logs --hub${N}    Stop: ${Y}./start.sh stop${N}"
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  MODE: run-docker  — pull pre-built images from Docker Hub and run

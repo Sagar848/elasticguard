@@ -17,6 +17,7 @@ setlocal EnableDelayedExpansion
 ::  Modes (Docker Hub pre-built images, no source code needed):
 ::    push            Build Docker images and push to Docker Hub
 ::    run-docker      Pull images from Docker Hub and run
+::    run-docker-with-ollama Pull images from Docker HHub and run with Ollama
 ::
 ::  Utilities:
 ::    stop            Stop all running services / containers
@@ -29,7 +30,7 @@ cd /d "%~dp0"
 :: ── Banner ───────────────────────────────────────────────────────────────────
 echo.
 echo   +---------------------------------------------------+
-echo   ^|   ElasticGuard -- AI Elasticsearch Diagnostics   ^|
+echo   ^|   ElasticGuard -- AI Elasticsearch Diagnostics    ^|
 echo   +---------------------------------------------------+
 echo.
 
@@ -48,6 +49,7 @@ if /i "%MODE%"=="build"          goto :mode_build
 if /i "%MODE%"=="run-local"      goto :mode_run_local
 if /i "%MODE%"=="push"           goto :mode_push
 if /i "%MODE%"=="run-docker"     goto :mode_run_docker
+if /i "%MODE%"=="run-docker-with-ollama" goto :mode_run_docker_with_ollama
 if /i "%MODE%"=="local"          goto :mode_local
 if /i "%MODE%"=="dev"            goto :mode_local
 if /i "%MODE%"=="docker-private" goto :mode_docker_private
@@ -390,6 +392,66 @@ call :ok "ElasticGuard is running!"
 call :div
 echo   Frontend:  http://localhost:3000
 echo   Backend:   http://localhost:8000
+echo   Images:    hub.docker.com/u/!DOCKER_HUB_USER!
+call :div
+echo   Logs:  start.cmd logs --hub      Stop:  start.cmd stop
+goto :eof
+:: ═════════════════════════════════════════════════════════════════════════════
+
+:mode_run_docker_with_ollama
+:: Pull pre-built images from Docker Hub and run. No source code needed.
+:: ═════════════════════════════════════════════════════════════════════════════
+call :need_docker
+echo.
+echo [RUN-DOCKER] Pull from Docker Hub and run. No source code needed.
+call :div
+echo.
+
+set "DOCKER_HUB_USER="
+set "TAG=latest"
+
+:: Load from .env.hub if exists
+if exist .env.hub (
+    for /f "tokens=1,2 delims==" %%A in (.env.hub) do (
+        if "%%A"=="DOCKER_HUB_USER" set "DOCKER_HUB_USER=%%B"
+        if "%%A"=="TAG" set "TAG=%%B"
+    )
+    if not "!DOCKER_HUB_USER!"=="" (
+        echo [INFO] Using saved config: user=!DOCKER_HUB_USER! tag=!TAG!
+    )
+)
+
+if "!DOCKER_HUB_USER!"=="" (
+    set /p "DOCKER_HUB_USER=Docker Hub username where images are published: "
+    if "!DOCKER_HUB_USER!"=="" ( call :err "Username cannot be empty" & goto :eof )
+)
+
+call :ensure_env
+
+if not defined NEXT_PUBLIC_API_URL set "NEXT_PUBLIC_API_URL=http://localhost:8000"
+
+:: Patch hub compose file with real username
+if exist docker-compose.hub.yml (
+    powershell -Command "(Get-Content docker-compose.hub.yml) -replace 'yourdockerhubuser', '!DOCKER_HUB_USER!' | Set-Content docker-compose.hub.yml" 2>nul
+)
+
+echo [INFO] Pulling !DOCKER_HUB_USER!/elasticguard-backend:!TAG!
+docker pull "!DOCKER_HUB_USER!/elasticguard-backend:!TAG!"
+if errorlevel 1 ( call :err "Pull failed. Is the image public on Docker Hub?" & goto :eof )
+
+echo [INFO] Pulling !DOCKER_HUB_USER!/elasticguard-frontend:!TAG!
+docker pull "!DOCKER_HUB_USER!/elasticguard-frontend:!TAG!"
+if errorlevel 1 ( call :err "Frontend pull failed" & goto :eof )
+
+set "DOCKER_HUB_USER=!DOCKER_HUB_USER!" && set "TAG=!TAG!" && docker compose --profile ollama -f docker-compose.hub.yml up -d
+if errorlevel 1 ( call :err "docker compose up failed" & goto :eof )
+
+echo.
+call :ok "ElasticGuard is running!"
+call :div
+echo   Frontend:  http://localhost:3000
+echo   Backend:   http://localhost:8000
+echo   Ollama:    http://localhost:11434
 echo   Images:    hub.docker.com/u/!DOCKER_HUB_USER!
 call :div
 echo   Logs:  start.cmd logs --hub      Stop:  start.cmd stop

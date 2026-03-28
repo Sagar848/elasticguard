@@ -108,18 +108,18 @@ services:
       - elasticguard
 
   # ── Ollama (optional local LLM — no API key needed) ───────────────────────────
-  # ollama:
-  #   image: ollama/ollama:latest
-  #   container_name: elasticguard-ollama
-  #   restart: unless-stopped
-  #   ports:
-  #     - "11434:11434"
-  #   volumes:
-  #     - ollama-data:/root/.ollama
-  #   profiles:
-  #     - ollama
-  #   networks:
-  #     - elasticguard
+  ollama:
+    image: ollama/ollama:latest
+    container_name: elasticguard-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    profiles:
+      - ollama
+    networks:
+      - elasticguard
 
 volumes:
   elasticguard-data:    # persistent ES connection DB, ChromaDB

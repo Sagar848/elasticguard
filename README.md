@@ -59,7 +59,41 @@ Both scripts have identical modes. Use `./start.sh MODE` on Linux/Mac and `start
 
 ---
 
-### `docker` — Build from source + run in Docker *(recommended)*
+### `run-docker-with-ollama` — Run pre-built images from Docker Hub with ollama *(recommended)*
+
+Pulls pre-built images and starts the app. **No source code required** — just Docker and a `.env` file.
+
+```bash
+# Linux / macOS
+DOCKER_HUB_USER=yourname ./start.sh run-docker-with-ollama
+
+# Windows
+start.cmd run-docker
+# (prompts for username if not set, or reads from .env.hub)
+```
+
+This is the recommended way to distribute ElasticGuard to users who just want to run it with ollama.
+
+---
+
+### `run-docker` — Run pre-built images from Docker Hub
+
+Pulls pre-built images and starts the app. **No source code required** — just Docker and a `.env` file.
+
+```bash
+# Linux / macOS
+DOCKER_HUB_USER=yourname ./start.sh run-docker
+
+# Windows
+start.cmd run-docker
+# (prompts for username if not set, or reads from .env.hub)
+```
+
+This is the recommended way to distribute ElasticGuard to users who just want to run it.
+
+---
+
+### `docker` — Build from source + run in Docker
 
 Builds the backend and frontend images locally, then starts all services.
 
@@ -179,23 +213,6 @@ The script prompts for:
 - The default backend URL to bake into the frontend image
 
 After pushing, config is saved to `.env.hub` for use by `run-docker`.
-
----
-
-### `run-docker` — Run pre-built images from Docker Hub
-
-Pulls pre-built images and starts the app. **No source code required** — just Docker and a `.env` file.
-
-```bash
-# Linux / macOS
-DOCKER_HUB_USER=yourname ./start.sh run-docker
-
-# Windows
-start.cmd run-docker
-# (prompts for username if not set, or reads from .env.hub)
-```
-
-This is the recommended way to distribute ElasticGuard to users who just want to run it.
 
 ---
 
