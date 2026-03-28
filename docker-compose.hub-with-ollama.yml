@@ -26,8 +26,8 @@ version: '3.9'
 #   DOCKER_HUB_USER=myorg TAG=1.2.0 docker compose -f docker-compose.hub.yml up -d
 
 x-images:
-  backend-image:  &backend-image  ${DOCKER_HUB_USER:-sagar848}/elasticguard-backend:${TAG:-latest}
-  frontend-image: &frontend-image ${DOCKER_HUB_USER:-sagar848}/elasticguard-frontend:${TAG:-latest}
+  backend-image:  &backend-image  ${DOCKER_HUB_USER:-yourdockerhubuser}/elasticguard-backend:${TAG:-latest}
+  frontend-image: &frontend-image ${DOCKER_HUB_USER:-yourdockerhubuser}/elasticguard-frontend:${TAG:-latest}
 
 services:
 
@@ -108,18 +108,18 @@ services:
       - elasticguard
 
   # ── Ollama (optional local LLM — no API key needed) ───────────────────────────
-  # ollama:
-  #   image: ollama/ollama:latest
-  #   container_name: elasticguard-ollama
-  #   restart: unless-stopped
-  #   ports:
-  #     - "11434:11434"
-  #   volumes:
-  #     - ollama-data:/root/.ollama
-  #   profiles:
-  #     - ollama
-  #   networks:
-  #     - elasticguard
+  ollama:
+    image: ollama/ollama:latest
+    container_name: elasticguard-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    profiles:
+      - ollama
+    networks:
+      - elasticguard
 
 volumes:
   elasticguard-data:    # persistent ES connection DB, ChromaDB
